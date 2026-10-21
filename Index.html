@@ -1,0 +1,260 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Banker's Algorithm: Incremental Safety Check Lab</title>
+<style>
+:root{--bg:#f4f6f9;--card:#fff;--ink:#1c2430;--mute:#5b6675;--line:#d9dee6;--blue:#0072B2;--green:#009E73;--orange:#E69F00;--red:#D55E00}
+*{box-sizing:border-box}
+body{margin:0;font-family:"Segoe UI",system-ui,Arial,sans-serif;background:var(--bg);color:var(--ink);line-height:1.5}
+header{background:#12304f;color:#fff;padding:22px 20px;text-align:center}
+header h1{margin:0 0 6px;font-size:1.5rem}
+header p{margin:0;opacity:.85;font-size:.92rem}
+main{max-width:980px;margin:0 auto;padding:18px 14px 40px}
+.card{background:var(--card);border:1px solid var(--line);border-radius:12px;padding:18px 20px;margin-bottom:18px;box-shadow:0 1px 3px rgba(0,0,0,.04)}
+h2{margin:0 0 8px;font-size:1.25rem}
+h3{margin:18px 0 8px;font-size:1.05rem}
+.hint{color:var(--mute);font-size:.9rem;margin:0 0 12px}
+.grid3{display:grid;grid-template-columns:1fr 1.3fr 1.3fr;gap:12px}
+.grid2{display:grid;grid-template-columns:1fr 1fr;gap:12px}
+@media(max-width:720px){.grid3,.grid2{grid-template-columns:1fr}}
+label{display:flex;flex-direction:column;font-size:.85rem;font-weight:600;color:var(--mute);gap:4px}
+label.inline{flex-direction:row;align-items:center;gap:6px}
+textarea,input,select{font-family:Consolas,"Courier New",monospace;font-size:.95rem;padding:7px 9px;border:1px solid var(--line);border-radius:8px;background:#fafbfc;color:var(--ink)}
+input[type=number]{width:90px}
+.row{display:flex;flex-wrap:wrap;gap:10px;align-items:center;margin:12px 0}
+button{cursor:pointer;border:1px solid var(--line);background:#fff;color:var(--ink);padding:8px 14px;border-radius:8px;font-size:.92rem;font-weight:600}
+button:hover{background:#eef2f7}
+button.primary{background:var(--blue);border-color:var(--blue);color:#fff}
+button.primary:hover{background:#005f94}
+button:disabled{opacity:.5;cursor:wait}
+.out{margin-top:10px;font-size:.92rem;overflow-x:auto}
+.out table{border-collapse:collapse;margin:8px 0;font-size:.85rem;min-width:300px}
+.out th,.out td{border:1px solid var(--line);padding:5px 9px;text-align:center;white-space:nowrap}
+.out th{background:#e8eef5}
+.tag{display:inline-block;padding:2px 10px;border-radius:999px;font-weight:700;font-size:.85rem}
+.safe{background:#d9f2e8;color:#07654a}.unsafe{background:#fbe0d1;color:#9b3c00}
+.msg{margin:6px 0}
+.exp{border-top:1px dashed var(--line);margin-top:8px;padding-top:4px}
+canvas{max-width:100%;height:auto;border:1px solid var(--line);border-radius:8px;background:#fff;margin-top:6px}
+footer{text-align:center;color:var(--mute);font-size:.8rem;padding:0 10px 24px}
+.ok{color:#07654a;font-weight:700}.bad{color:#b00020;font-weight:700}
+
+</style>
+</head>
+<body>
+<header>
+  <h1>Banker's Algorithm &mdash; Incremental Safety Check (ISC) Lab</h1>
+  <p>OS Self Learning Activity, Stage 3 &middot; SAKEC Computer Engineering &middot; Pratik Maharnur (23) &amp; Smit Mange (24)</p>
+</header>
+
+<main>
+<!-- ================= PART 1: DEMO ================= -->
+<section class="card">
+  <h2>Add Process dynamically</h2>
+  <p class="hint">Enter one row per process (numbers separated by spaces). Check safety first, then add a new process and compare the
+  <b>traditional full re-check (Alg 1)</b> with the <b>Incremental Safety Check (Alg 2 / ISC)</b>.</p>
+  <div class="grid3">
+    <label>Available<textarea id="inAvail" rows="2"></textarea></label>
+    <label>Max matrix<textarea id="inMax" rows="6"></textarea></label>
+    <label>Allocation matrix<textarea id="inAlloc" rows="6"></textarea></label>
+  </div>
+  <div class="row">
+    <button id="btnExample">Load textbook example</button>
+    <button id="btnCheck" class="primary">Check Safety (Alg 1)</button>
+  </div>
+  <div id="checkOut" class="out"></div>
+
+  <h3>Add a new process</h3>
+  <div class="grid2">
+    <label>Allocation of new process (Alloc<sub>x</sub>)<input id="newAlloc" value="0 0 0"></label>
+    <label>Maximum claim of new process (Max<sub>x</sub>)<input id="newMax" value="3 2 2"></label>
+  </div>
+  <div class="row"><button id="btnAdd" class="primary">Add process &amp; compare Alg 1 vs ISC</button></div>
+  <div id="addOut" class="out"></div>
+</section>
+
+</main>
+<footer>Cost unit = element operations (one comparison Need[i][j] &le; Work[j] or one addition into Work).</footer>
+<script>
+/* =====================================================================
+   Banker's Algorithm + Add Process (Incremental Safety Check)
+   Alg 1  : traditional safety test, re-run from scratch
+   Alg 2  : ISC - insert the new process into the stored safe sequence
+   Alg 2a : ISC ablation - append at the END only
+   Cost unit = element operations (comparison or addition)
+   ===================================================================== */
+
+/* ---------- core algorithms ---------- */
+
+// Alg 1: textbook multi-pass safety test. cnt is {n:0}
+function safetyFull(avail, alloc, need, cnt) {
+  const n = alloc.length, m = avail.length;
+  const work = avail.slice();
+  const fin = new Array(n).fill(false);
+  const seq = [];
+  let progress = true;
+  while (progress && seq.length < n) {
+    progress = false;
+    for (let i = 0; i < n; i++) {
+      if (fin[i]) continue;
+      let ok = true;
+      for (let j = 0; j < m; j++) {
+        cnt.n++;
+        if (need[i][j] > work[j]) { ok = false; break; }
+      }
+      if (ok) {
+        for (let j = 0; j < m; j++) work[j] += alloc[i][j];
+        cnt.n += m;
+        fin[i] = true;
+        seq.push(i);
+        progress = true;
+      }
+    }
+  }
+  return { safe: seq.length === n, seq };
+}
+
+// independent check that a claimed sequence is really safe
+function verifySequence(avail, alloc, need, seq) {
+  const n = alloc.length, m = avail.length;
+  if (seq.length !== n || new Set(seq).size !== n) return false;
+  const work = avail.slice();
+  for (const i of seq) {
+    for (let j = 0; j < m; j++) if (need[i][j] > work[j]) return false;
+    for (let j = 0; j < m; j++) work[j] += alloc[i][j];
+  }
+  return true;
+}
+
+// Alg 2 / 2a fast path. Returns insertion position k, or null on a miss.
+function iscInsert(avail, alloc, need, seq, xa, xn, cnt, appendOnly) {
+  const m = avail.length;
+  const work = avail.map((v, j) => v - xa[j]);
+  cnt.n += m;
+  const n = seq.length;
+  for (let k = 0; k <= n; k++) {
+    if (!appendOnly || k === n) {
+      let ok = true;
+      for (let j = 0; j < m; j++) {
+        cnt.n++;
+        if (xn[j] > work[j]) { ok = false; break; }
+      }
+      if (ok) return k;
+    }
+    if (k === n) break;
+    const i = seq[k];
+    for (let j = 0; j < m; j++) {
+      cnt.n++;
+      if (need[i][j] > work[j]) return null; // prefix no longer feasible
+    }
+    for (let j = 0; j < m; j++) work[j] += alloc[i][j];
+    cnt.n += m;
+  }
+  return null;
+}
+
+/* ---------- helpers for the page ---------- */
+const $ = id => document.getElementById(id);
+
+function parseMatrix(text) {
+  return text.trim().split(/\n+/).filter(l => l.trim()).map(l => l.trim().split(/[\s,]+/).map(Number));
+}
+const parseVec = t => t.trim().split(/[\s,]+/).map(Number);
+const allInts = M => M.every(r => r.every(v => Number.isInteger(v) && v >= 0));
+
+function matrixHTML(title, M, prefix = "P") {
+  let h = `<table><tr><th>${title}</th>` + M[0].map((_, j) => `<th>${String.fromCharCode(65 + j)}</th>`).join("") + "</tr>";
+  M.forEach((r, i) => { h += `<tr><th>${prefix}${i}</th>` + r.map(v => `<td>${v}</td>`).join("") + "</tr>"; });
+  return h + "</table>";
+}
+const seqText = s => s.map(i => "P" + i).join(" &rarr; ");
+
+/* =====================================================================
+   Add Process demo
+   ===================================================================== */
+const demo = { avail: null, max: null, alloc: null, need: null, seq: null };
+
+function loadExample() {
+  $("inAvail").value = "3 3 2";
+  $("inMax").value = "7 5 3\n3 2 2\n9 0 2\n2 2 2\n4 3 3";
+  $("inAlloc").value = "0 1 0\n2 0 0\n3 0 2\n2 1 1\n0 0 2";
+  $("checkOut").innerHTML = ""; $("addOut").innerHTML = "";
+  demo.seq = null;
+}
+
+function readState() {
+  const avail = parseVec($("inAvail").value), mx = parseMatrix($("inMax").value), al = parseMatrix($("inAlloc").value);
+  const m = avail.length;
+  if (!avail.every(v => Number.isInteger(v) && v >= 0)) throw new Error("Available must be non-negative integers.");
+  if (!allInts(mx) || !allInts(al)) throw new Error("Matrices must contain non-negative integers.");
+  if (mx.length !== al.length || mx.length === 0) throw new Error("Max and Allocation need the same number of rows (processes).");
+  if (![...mx, ...al].every(r => r.length === m)) throw new Error("Every row must have " + m + " columns (same as Available).");
+  for (let i = 0; i < mx.length; i++) for (let j = 0; j < m; j++)
+    if (al[i][j] > mx[i][j]) throw new Error(`Allocation[P${i}][${String.fromCharCode(65 + j)}] is greater than Max.`);
+  const need = mx.map((r, i) => r.map((v, j) => v - al[i][j]));
+  return { avail, mx, al, need };
+}
+
+$("btnExample").onclick = loadExample;
+
+$("btnCheck").onclick = () => {
+  const out = $("checkOut");
+  try {
+    const s = readState();
+    const cnt = { n: 0 };
+    const r = safetyFull(s.avail, s.al, s.need, cnt);
+    Object.assign(demo, { avail: s.avail, max: s.mx, alloc: s.al, need: s.need, seq: r.safe ? r.seq : null });
+    out.innerHTML = matrixHTML("Need = Max − Alloc", s.need) +
+      (r.safe
+        ? `<div class="msg"><span class="tag safe">SAFE</span> Safe sequence: <b>${seqText(r.seq)}</b> &nbsp;(Alg 1 used ${cnt.n} element operations)</div>`
+        : `<div class="msg"><span class="tag unsafe">UNSAFE</span> No process can be completed in a full pass &mdash; no safe sequence exists. (${cnt.n} operations)</div>`);
+  } catch (e) { out.innerHTML = `<span class="bad">${e.message}</span>`; }
+};
+
+$("btnAdd").onclick = () => {
+  const out = $("addOut");
+  try {
+    if (!demo.seq) throw new Error("First press “Check Safety” on a SAFE state. ISC needs a stored safe sequence to reuse.");
+    const s = readState();   // use what is currently in the boxes
+    const m = s.avail.length;
+    const xa = parseVec($("newAlloc").value), xm = parseVec($("newMax").value);
+    if (xa.length !== m || xm.length !== m) throw new Error("New process needs " + m + " values for both Allocation and Max.");
+    if (![...xa, ...xm].every(v => Number.isInteger(v) && v >= 0)) throw new Error("Use non-negative integers.");
+    for (let j = 0; j < m; j++) {
+      if (xa[j] > xm[j]) throw new Error("Allocation cannot exceed Max for the new process.");
+      if (xa[j] > s.avail[j]) throw new Error("Not enough Available resources to give the new process that Allocation.");
+    }
+    const xn = xm.map((v, j) => v - xa[j]);
+    const al1 = s.al.concat([xa]), nd1 = s.need.concat([xn]), av1 = s.avail.map((v, j) => v - xa[j]);
+
+    const c1 = { n: 0 }, r1 = safetyFull(av1, al1, nd1, c1);
+    const c2 = { n: 0 }, k = iscInsert(s.avail, s.al, s.need, demo.seq, xa, xn, c2, false);
+    let r2;
+    if (k !== null) r2 = { safe: true, seq: demo.seq.slice(0, k).concat([s.al.length], demo.seq.slice(k)), hit: true };
+    else { const r = safetyFull(av1, al1, nd1, c2); r2 = { safe: r.safe, seq: r.seq, hit: false }; }
+
+    const pName = "P" + s.al.length;
+    let h = `<div class="msg"><b>New process ${pName}</b> &mdash; Need = [${xn.join(", ")}], Available after giving Alloc = [${av1.join(", ")}]</div>
+    <table><tr><th></th><th>Decision</th><th>Safe sequence</th><th>Element ops</th></tr>
+    <tr><th>Alg 1 (full re-check)</th><td>${r1.safe ? '<span class="tag safe">SAFE</span>' : '<span class="tag unsafe">UNSAFE</span>'}</td><td>${r1.safe ? seqText(r1.seq) : "&mdash;"}</td><td>${c1.n}</td></tr>
+    <tr><th>Alg 2 (ISC)</th><td>${r2.safe ? '<span class="tag safe">SAFE</span>' : '<span class="tag unsafe">UNSAFE</span>'}</td><td>${r2.safe ? seqText(r2.seq) : "&mdash;"}</td><td>${c2.n}</td></tr></table>
+    <div class="msg">${r2.hit ? `ISC <b>fast path hit</b>: ${pName} was inserted at position ${k} of the old sequence, no full re-check was needed.`
+        : "ISC fast path <b>missed</b> (no valid insertion position), so it fell back to the full test."}</div>`;
+    if (r1.safe !== r2.safe) h += `<div class="bad">Decision mismatch! (this should never happen)</div>`;
+    if (r1.safe) {
+      h += `<div class="msg ok">${pName} admitted. The matrices above have been updated; you can add another process.</div>`;
+      $("inMax").value = $("inMax").value.trim() + "\n" + xm.join(" ");
+      $("inAlloc").value = $("inAlloc").value.trim() + "\n" + xa.join(" ");
+      $("inAvail").value = av1.join(" ");
+      demo.seq = r2.seq; demo.avail = av1; demo.alloc = al1; demo.need = nd1;
+    } else h += `<div class="msg bad">${pName} rejected: granting it would leave the system in an unsafe state. State unchanged.</div>`;
+    out.innerHTML = h;
+  } catch (e) { out.innerHTML = `<span class="bad">${e.message}</span>`; }
+};
+loadExample();
+
+</script>
+</body>
+</html>
